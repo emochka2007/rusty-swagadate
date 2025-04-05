@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  postgres:
+    image: ankane/pgvector
+    environment:
+      POSTGRES_DB: swagadate
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: swagadate
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+volumes:
+  postgres_data:
