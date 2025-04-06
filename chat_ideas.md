@@ -1,0 +1,4 @@
+- matching by tiktok
+- captcha requires to open chat with match
+- captcha session timeout (24hrs)
+- 

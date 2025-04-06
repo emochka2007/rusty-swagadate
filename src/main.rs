@@ -1,10 +1,13 @@
 use crate::bot::SwagaBot;
 use crate::pg::establish_connection;
 
-mod profile;
 mod bot;
-mod schema;
+mod match_engine;
 mod pg;
+mod profile;
+mod profile_activities;
+mod profile_view;
+mod schema;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

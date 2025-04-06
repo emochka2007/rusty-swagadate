@@ -1,16 +1,23 @@
+use crate::match_engine::MatchEngine;
 use crate::profile::Profile;
+use crate::profile_view::ProfileView;
 use log::{debug, info};
-use teloxide::dispatching::dialogue::{GetChatId, Storage};
 use std::sync::Arc;
+use teloxide::dispatching::dialogue::{GetChatId, Storage};
 use teloxide::prelude::*;
+use teloxide::sugar::bot::BotMessagesExt;
+use teloxide::types::{
+    InlineQueryResultArticle, InputMessageContent, InputMessageContentText, KeyboardButton,
+    KeyboardMarkup, Me,
+};
 use teloxide::{
-    dispatching::{dialogue, dialogue::InMemStorage, UpdateHandler},
+    dispatching::{UpdateHandler, dialogue, dialogue::InMemStorage},
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup},
     utils::command::BotCommands,
 };
-use teloxide::sugar::bot::BotMessagesExt;
-use teloxide::types::{InlineQueryResultArticle, InputMessageContent, InputMessageContentText, KeyboardButton, KeyboardMarkup, Me};
+use url::quirks::username;
+use crate::profile_activities::ProfileActivity;
 
 pub struct SwagaBot {
     bot: Bot,
@@ -22,7 +29,9 @@ pub enum State {
     Profile {
         username: String,
     },
+    ViewProfiles,
     ListOptions,
+    InputAge,
 }
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -42,42 +51,55 @@ impl SwagaBot {
     /// Parse the text wrote on Telegram and check if that text is a valid command
     /// or not, then match the command. If the command is `/start` it writes a
     /// markup with the `InlineKeyboardMarkup`.
-    async fn message_handler(bot: Bot, dialogue: MyDialogue,   msg: Message, me: Me) -> HandlerResult {
-        let text = msg.text().unwrap();
-        if let Some(state) = dialogue.get_dialogue(msg.chat_id().unwrap()).await? {
-            info!("{:?}",state);
-        }
+    async fn message_handler(
+        bot: Bot,
+        dialogue: MyDialogue,
+        msg: Message,
+        me: Me,
+    ) -> HandlerResult {
+        //todo
+        let chat_id = msg.chat_id().unwrap();
+        let username = msg.from.clone().unwrap().username.unwrap();
         if let Some(text) = msg.text() {
-            let is_command = text.starts_with("/");
-            if is_command {
-                match BotCommands::parse(text, me.username()) {
-                    Ok(Command::Help) => {
-                        SwagaBot::start(bot, msg).await?;
+            if let Some(state) = dialogue.clone().get_dialogue(chat_id).await? {
+                info!("{:?}", state);
+                match state {
+                    State::ViewProfiles => {
+                        SwagaBot::next_profile(&bot, dialogue, chat_id, &username).await?;
                     }
-                    Ok(Command::Start) => {
-                        SwagaBot::start(bot, msg).await?;
-                    }
-                    Err(_) => {
-                        bot.send_message(msg.chat.id, "Command not found!").await?;
-                    }
+                    State::ListOptions => match text.parse::<i32>() {
+                        Ok(input_option) => match input_option {
+                            1 => SwagaBot::next_profile(&bot, dialogue, chat_id, &username).await?,
+                            2 => SwagaBot::refresh_profile(&bot, dialogue, chat_id).await?,
+                            _ => SwagaBot::handle_generic_error(&bot, dialogue, chat_id).await?,
+                        },
+                        Err(_) => {
+                            SwagaBot::handle_generic_error(&bot, dialogue, chat_id).await?;
+                        }
+                    },
+                    State::InputAge => match text.parse::<i32>() {
+                        Ok(age) => {
+                            SwagaBot::save_age(&bot, dialogue, chat_id, age, &username).await?;
+                        }
+                        Err(_) => {
+                            SwagaBot::handle_generic_error(&bot, dialogue, chat_id).await?;
+                        }
+                    },
+                    _ => {}
                 }
             } else {
-                match text {
-                    "1" => {
-                        info!("{text}");
-                    }
-                    "2" => {
-                        Self::refresh_profile(&bot, msg.chat_id().unwrap()).await?;
-                        info!("{text}");
-                    }
-                    "3" => {
-                        info!("{text}");
-                    }
-                    "4" => {
-                        info!("{text}");
-                    }
-                    _ => {
-                        info!("Unknown func");
+                let is_command = text.starts_with("/");
+                if is_command {
+                    match BotCommands::parse(text, me.username()) {
+                        Ok(Command::Help) => {
+                            SwagaBot::start(bot, &dialogue, msg).await?;
+                        }
+                        Ok(Command::Start) => {
+                            SwagaBot::start(bot, &dialogue, msg).await?;
+                        }
+                        Err(_) => {
+                            bot.send_message(msg.chat.id, "Command not found!").await?;
+                        }
                     }
                 }
             }
@@ -86,8 +108,68 @@ impl SwagaBot {
         Ok(())
     }
 
-    pub async fn refresh_profile(bot: &Bot, chat_id: ChatId) -> HandlerResult {
+    pub async fn refresh_profile(
+        bot: &Bot,
+        my_dialogue: MyDialogue,
+        chat_id: ChatId,
+    ) -> HandlerResult {
         bot.send_message(chat_id, "Сколько тебе лет?".to_string())
+            .await?;
+        my_dialogue
+            .update_dialogue(chat_id, State::InputAge)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn next_profile(
+        bot: &Bot,
+        my_dialogue: MyDialogue,
+        chat_id: ChatId,
+        username: &str,
+    ) -> HandlerResult {
+        let viewer = Profile::get_by_username(username)?.unwrap();
+        let profile_activity = ProfileActivity::from_id(*viewer.id()).upsert_and_increment()?;
+        let matching_engine = MatchEngine::match_profiles(viewer.id())?;
+        let profile = Profile::get_profile();
+        let profile_text = format!(
+            "{}, {}, {} - {}",
+            profile.username(),
+            profile.age(),
+            profile.location(),
+            profile.description()
+        );
+        bot.send_message(chat_id, profile_text).await?;
+        let view = ProfileView::new(*viewer.id(), *profile.id());
+        view.insert()?;
+        Ok(())
+    }
+
+    pub async fn save_age(
+        bot: &Bot,
+        my_dialogue: MyDialogue,
+        chat_id: ChatId,
+        age: i32,
+        username: &str,
+    ) -> HandlerResult {
+        Profile::update_age(username, age)?;
+        bot.send_message(chat_id, "Теперь определимся с полом".to_string())
+            .await?;
+        my_dialogue
+            .update_dialogue(chat_id, State::InputAge)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn handle_generic_error(
+        bot: &Bot,
+        my_dialogue: MyDialogue,
+        chat_id: ChatId,
+    ) -> HandlerResult {
+        //todo save to db age
+        bot.send_message(chat_id, "Ты ебанутый че за инпут".to_string())
+            .await?;
+        my_dialogue
+            .update_dialogue(chat_id, State::InputAge)
             .await?;
         Ok(())
     }
@@ -95,13 +177,11 @@ impl SwagaBot {
     pub async fn dispatcher() {
         let bot = Bot::from_env();
         let handler = dptree::entry()
-            .enter_dialogue::<Message, InMemStorage<State>, State>()
             .branch(Update::filter_message().endpoint(SwagaBot::message_handler))
             .branch(Update::filter_callback_query().endpoint(SwagaBot::callback_handler))
             .branch(Update::filter_inline_query().endpoint(SwagaBot::inline_query_handler));
 
         Dispatcher::builder(bot, handler)
-            
             .dependencies(dptree::deps![InMemStorage::<State>::new()])
             .enable_ctrlc_handler()
             .build()
@@ -129,7 +209,7 @@ impl SwagaBot {
         Ok(())
     }
 
-    async fn start(bot: Bot, msg: Message) -> HandlerResult {
+    async fn start(bot: Bot, dialogue: &MyDialogue, msg: Message) -> HandlerResult {
         if let Some(from) = msg.from {
             let profile = Profile::new(from.id.0 as i64, from.username);
             let matched_profile = match Profile::get_by_username(profile.username())? {
@@ -137,6 +217,10 @@ impl SwagaBot {
                 None => profile.insert()?,
             };
             let chat_id = ChatId(*matched_profile.user_id());
+            dialogue
+                .clone()
+                .update_dialogue(chat_id, State::ListOptions)
+                .await?;
             Self::send_welcome_message(&bot, matched_profile.username(), chat_id).await?;
             Self::list_options(&bot, matched_profile.username(), chat_id).await?;
         } else {
