@@ -40,6 +40,7 @@ diesel::table! {
         age -> Int4,
         location -> Text,
         gender -> Text,
+        interests -> Text,
     }
 }
 

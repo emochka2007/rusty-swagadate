@@ -1,6 +1,9 @@
 use crate::pg::establish_connection;
-use diesel::{select, ExpressionMethods, Insertable, QueryDsl, Queryable, RunQueryDsl, Selectable, SelectableHelper};
 use diesel::dsl::exists;
+use diesel::{
+    ExpressionMethods, Insertable, QueryDsl, Queryable, RunQueryDsl, Selectable, SelectableHelper,
+    select,
+};
 use uuid::Uuid;
 
 #[derive(Queryable, Selectable, Insertable)]
@@ -31,9 +34,9 @@ impl ProfileView {
     }
 
     pub fn exists(&self) -> anyhow::Result<bool> {
+        use crate::schema::profile_views::dsl::*;
         use diesel::prelude::*;
         use diesel::select;
-        use crate::schema::profile_views::dsl::*;
         let connection = &mut establish_connection();
         let result = select(exists(profile_views.filter(viewer_id.eq(self.viewer_id))));
         Ok(result.get_result::<bool>(connection)?)

@@ -1,12 +1,12 @@
 use crate::pg::establish_connection;
+use crate::schema::profile_activities::activity_count;
+use crate::schema::profile_activities::dsl::profile_activities;
+use crate::schema::profile_likes::viewer_id;
 use diesel::{
     ExpressionMethods, Insertable, OptionalExtension, QueryDsl, Queryable, RunQueryDsl, Selectable,
     SelectableHelper,
 };
 use uuid::Uuid;
-use crate::schema::profile_activities::activity_count;
-use crate::schema::profile_activities::dsl::profile_activities;
-use crate::schema::profile_likes::viewer_id;
 
 #[derive(Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::schema::profile_activities)]
@@ -36,7 +36,7 @@ impl ProfileActivity {
             activity_count: 1,
         }
     }
-    
+
     pub fn viewer_id(&self) -> &Uuid {
         &self.viewer_id
     }

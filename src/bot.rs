@@ -1,5 +1,6 @@
 use crate::match_engine::MatchEngine;
-use crate::profile::Profile;
+use crate::profile::{Profile, ProfileGender};
+use crate::profile_activities::ProfileActivity;
 use crate::profile_view::ProfileView;
 use log::{debug, info};
 use std::sync::Arc;
@@ -16,8 +17,6 @@ use teloxide::{
     types::{InlineKeyboardButton, InlineKeyboardMarkup},
     utils::command::BotCommands,
 };
-use url::quirks::username;
-use crate::profile_activities::ProfileActivity;
 
 pub struct SwagaBot {
     bot: Bot,
@@ -32,6 +31,8 @@ pub enum State {
     ViewProfiles,
     ListOptions,
     InputAge,
+    InputGender,
+    InputInterests,
 }
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -57,7 +58,6 @@ impl SwagaBot {
         msg: Message,
         me: Me,
     ) -> HandlerResult {
-        //todo
         let chat_id = msg.chat_id().unwrap();
         let username = msg.from.clone().unwrap().username.unwrap();
         if let Some(text) = msg.text() {
@@ -85,6 +85,28 @@ impl SwagaBot {
                             SwagaBot::handle_generic_error(&bot, dialogue, chat_id).await?;
                         }
                     },
+                    State::InputInterests => {
+                        let interest = match text {
+                            "Девушки" => {}
+                            "Парни" => {}
+                            "Все равно" => {}
+                            _ => {
+                                SwagaBot::handle_generic_error(&bot, dialogue, chat_id).await?;
+                                return Ok(());
+                            }
+                        };
+                    }
+                    State::InputGender => {
+                        let gender: ProfileGender = match text {
+                            "Я девушка" => ProfileGender::Female,
+                            "Я парень" => ProfileGender::Male,
+                            _ => {
+                                Self::handle_generic_error(&bot, dialogue, chat_id).await?;
+                                return Ok(());
+                            }
+                        };
+                        SwagaBot::save_gender(&bot, dialogue, chat_id, gender, &username).await?;
+                    }
                     _ => {}
                 }
             } else {
@@ -152,10 +174,63 @@ impl SwagaBot {
         username: &str,
     ) -> HandlerResult {
         Profile::update_age(username, age)?;
-        bot.send_message(chat_id, "Теперь определимся с полом".to_string())
+        let keyboard = vec![vec![
+            KeyboardButton::new("Я девушка"),
+            KeyboardButton::new("Я парень"),
+        ]];
+        let keyboard_markup = KeyboardMarkup::new(keyboard)
+            .persistent()
+            .resize_keyboard()
+            .selective()
+            .one_time_keyboard();
+        bot.send_message(chat_id, "Теперь определимся с полом")
+            .reply_markup(keyboard_markup)
             .await?;
         my_dialogue
-            .update_dialogue(chat_id, State::InputAge)
+            .update_dialogue(chat_id, State::InputGender)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn save_interests(
+        bot: &Bot,
+        my_dialogue: MyDialogue,
+        chat_id: ChatId,
+        age: i32,
+        username: &str,
+    ) -> HandlerResult {
+        Profile::update_age(username, age)?;
+        let keyboard = vec![vec![
+            KeyboardButton::new("Девушки"),
+            KeyboardButton::new("Парни"),
+            KeyboardButton::new("Все равно"),
+        ]];
+        let keyboard_markup = KeyboardMarkup::new(keyboard)
+            .persistent()
+            .resize_keyboard()
+            .selective()
+            .one_time_keyboard();
+        bot.send_message(chat_id, "Из какого ты города?")
+            .reply_markup(keyboard_markup)
+            .await?;
+        my_dialogue
+            .update_dialogue(chat_id, State::InputInterests)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn save_gender(
+        bot: &Bot,
+        my_dialogue: MyDialogue,
+        chat_id: ChatId,
+        gender: ProfileGender,
+        username: &str,
+    ) -> HandlerResult {
+        Profile::update_gender(username, &gender.to_string())?;
+        bot.send_message(chat_id, "Кто тебе интересен?".to_string())
+            .await?;
+        my_dialogue
+            .update_dialogue(chat_id, State::InputGender)
             .await?;
         Ok(())
     }
@@ -247,6 +322,7 @@ impl SwagaBot {
         }
         Ok(())
     }
+
     async fn inline_query_handler(bot: Bot, q: InlineQuery) -> HandlerResult {
         let choose_debian_version = InlineQueryResultArticle::new(
             "0",

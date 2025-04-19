@@ -1,5 +1,4 @@
 use crate::bot::SwagaBot;
-use crate::pg::establish_connection;
 
 mod bot;
 mod match_engine;

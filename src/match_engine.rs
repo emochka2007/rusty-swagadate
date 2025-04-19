@@ -1,8 +1,8 @@
 use crate::profile::Profile;
 use crate::profile_activities::ProfileActivity;
-use uuid::Uuid;
 use crate::profile_view::ProfileView;
 use crate::schema::profile_likes::profile_id;
+use uuid::Uuid;
 
 pub struct MatchEngine();
 

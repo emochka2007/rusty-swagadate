@@ -101,6 +101,16 @@ impl Profile {
         Ok(())
     }
 
+    pub fn update_gender(msg_username: &str, profile_gender: &str) -> anyhow::Result<()> {
+        use crate::schema::profiles::dsl::*;
+        let connection = &mut establish_connection();
+        diesel::update(profiles)
+            .filter(username.eq(msg_username))
+            .set(gender.eq(profile_gender))
+            .execute(connection)?;
+        Ok(())
+    }
+
     pub fn get_by_id(profile_id: &Uuid) -> Profile {
         let connection = &mut establish_connection();
         profiles::dsl::profiles
